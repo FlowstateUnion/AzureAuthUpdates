@@ -1,0 +1,17 @@
+Below is a set of strings.I have a folder that That contains a whole bunch of PowerShell scripts. and I need to replace all of the strings below with correct proper functions. Each of the scripts has different purposes and usage use case and each will be needed to be managed independently. Our goal in this conversation will be to Create a plan. that I can feed to an agentic development agent. for it to up appropriately. You'll need to create a separate cup. copy and we'll use a recurring script for that. as a staging. and test bed. whoa updating so many of them will also be applying a standardized template are currently Running on azure automation runbooks automation using Powershell 5.1 or 7 point X in addition to a development strategy If there are easy ways to go about replicating this in a standardized fashion without having to rewrite the code in each of the independent run books I would be open to suggestions most of these scripts have not been updated in quite a long time so we're going to take this opportunity to do them right as you'll see in the list below each of these is fairly different we will need a strategy for each of these functions so that we can identify how it's being used in each of the scripts and the appropriate way to update please start by doing research to assure you're up to speed on azure automation runbooks as well as the commands below
+
+Connect-SPOService 
+
+Connect-PnPOnline 
+
+Get-Automation
+
+PSCredentia
+
+Get-Credential 
+
+PSCredential
+
+ConvertTo-SecureString
+
+AppSecret
