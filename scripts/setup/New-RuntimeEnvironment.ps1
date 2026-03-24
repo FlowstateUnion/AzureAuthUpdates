@@ -20,17 +20,26 @@
 #>
 
 param(
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$ResourceGroupName,
 
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$AutomationAccountName,
 
     [Parameter()]
-    [string]$EnvironmentName = "PS74-ModernAuth"
+    [string]$EnvironmentName
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Load .env config ---
+. "$PSScriptRoot\..\shared\Load-EnvConfig.ps1"
+. "$PSScriptRoot\..\shared\Resolve-ConfigValue.ps1"
+
+$ResourceGroupName    = Resolve-ConfigValue -Value $ResourceGroupName    -EnvVar "AUTOMATION_RESOURCE_GROUP"  -Prompt "Resource Group Name" -Required
+$AutomationAccountName = Resolve-ConfigValue -Value $AutomationAccountName -EnvVar "AUTOMATION_ACCOUNT_NAME"   -Prompt "Automation Account Name" -Required
+$EnvironmentName       = Resolve-ConfigValue -Value $EnvironmentName       -EnvVar "AUTOMATION_RUNTIME_ENV"    -Prompt "Runtime Environment Name"
+if (-not $EnvironmentName) { $EnvironmentName = "PS74-ModernAuth" }
 
 # --- Module manifest: name → version ---
 # Update these versions as needed; always pin to a specific version.

@@ -33,26 +33,38 @@
 #>
 
 param(
-    [Parameter(Mandatory)]
-    [string]$ModulePath,
+    [Parameter()]
+    [string]$ModulePath = ".\modules\Contoso.Automation.Auth",
 
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$ResourceGroupName,
 
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$AutomationAccountName,
 
     [Parameter()]
-    [string]$RuntimeEnvironment = "PS74-ModernAuth",
+    [string]$RuntimeEnvironment,
 
     [Parameter()]
     [string]$StorageAccountName,
 
     [Parameter()]
-    [string]$ContainerName = "automation-modules"
+    [string]$ContainerName
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Load .env config ---
+. "$PSScriptRoot\..\shared\Load-EnvConfig.ps1"
+. "$PSScriptRoot\..\shared\Resolve-ConfigValue.ps1"
+
+$ResourceGroupName     = Resolve-ConfigValue -Value $ResourceGroupName     -EnvVar "AUTOMATION_RESOURCE_GROUP" -Prompt "Resource Group Name" -Required
+$AutomationAccountName = Resolve-ConfigValue -Value $AutomationAccountName -EnvVar "AUTOMATION_ACCOUNT_NAME"  -Prompt "Automation Account Name" -Required
+$RuntimeEnvironment    = Resolve-ConfigValue -Value $RuntimeEnvironment    -EnvVar "AUTOMATION_RUNTIME_ENV"   -Prompt "Runtime Environment"
+if (-not $RuntimeEnvironment) { $RuntimeEnvironment = "PS74-ModernAuth" }
+$StorageAccountName    = Resolve-ConfigValue -Value $StorageAccountName    -EnvVar "STORAGE_ACCOUNT_NAME"     -Prompt "Storage Account (blank to skip)"
+$ContainerName         = Resolve-ConfigValue -Value $ContainerName         -EnvVar "STORAGE_CONTAINER_NAME"   -Prompt "Container Name"
+if (-not $ContainerName) { $ContainerName = "automation-modules" }
 
 # --- Validate module path ---
 $manifestPath = Join-Path $ModulePath "Contoso.Automation.Auth.psd1"

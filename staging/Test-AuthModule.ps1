@@ -25,7 +25,7 @@
 #Requires -Modules Contoso.Automation.Auth
 
 param(
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$SharePointSiteUrl,
 
     [Parameter()]
@@ -36,6 +36,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Load .env config (when running locally) ---
+$envLoader = Join-Path $PSScriptRoot "..\scripts\shared\Load-EnvConfig.ps1"
+if (Test-Path $envLoader) {
+    . $envLoader
+    . (Join-Path $PSScriptRoot "..\scripts\shared\Resolve-ConfigValue.ps1")
+    $SharePointSiteUrl = Resolve-ConfigValue -Value $SharePointSiteUrl -EnvVar "SHAREPOINT_TEST_SITE_URL" -Prompt "SharePoint Site URL" -Required
+    $KeyVaultName      = Resolve-ConfigValue -Value $KeyVaultName      -EnvVar "KEYVAULT_NAME"            -Prompt "Key Vault Name (blank to skip)"
+}
 $testResults = [System.Collections.ArrayList]::new()
 
 function Add-TestResult {

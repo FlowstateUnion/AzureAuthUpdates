@@ -29,20 +29,27 @@
 #>
 
 param(
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$ResourceGroupName,
 
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$AutomationAccountName,
 
-    [Parameter(Mandatory)]
-    [string]$OutputPath,
+    [Parameter()]
+    [string]$OutputPath = ".\runbooks\source",
 
     [Parameter()]
     [switch]$UseManagedIdentity
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Load .env config ---
+. "$PSScriptRoot\..\shared\Load-EnvConfig.ps1"
+. "$PSScriptRoot\..\shared\Resolve-ConfigValue.ps1"
+
+$ResourceGroupName     = Resolve-ConfigValue -Value $ResourceGroupName     -EnvVar "AUTOMATION_RESOURCE_GROUP" -Prompt "Resource Group Name" -Required
+$AutomationAccountName = Resolve-ConfigValue -Value $AutomationAccountName -EnvVar "AUTOMATION_ACCOUNT_NAME"  -Prompt "Automation Account Name" -Required
 
 # --- Auth ---
 if ($UseManagedIdentity) {

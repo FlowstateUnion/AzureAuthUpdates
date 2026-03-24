@@ -27,7 +27,7 @@
 #>
 
 param(
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$ManagedIdentityObjectId,
 
     [Parameter()]
@@ -46,6 +46,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# --- Load .env config ---
+. "$PSScriptRoot\..\shared\Load-EnvConfig.ps1"
+. "$PSScriptRoot\..\shared\Resolve-ConfigValue.ps1"
+
+$ManagedIdentityObjectId = Resolve-ConfigValue -Value $ManagedIdentityObjectId -EnvVar "MANAGED_IDENTITY_OBJECT_ID" -Prompt "Managed Identity Object ID" -Required
 
 # --- Ensure Graph SDK is available and connected ---
 if (-not (Get-Module -ListAvailable -Name 'Microsoft.Graph.Applications')) {
