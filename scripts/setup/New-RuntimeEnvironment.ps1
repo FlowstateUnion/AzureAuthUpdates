@@ -66,10 +66,16 @@ try {
     Write-Output "Runtime environment created."
 }
 catch {
-    Write-Warning "New-AzAutomationRuntimeEnvironment cmdlet failed: $($_.Exception.Message)"
-    Write-Output "You may need to create the runtime environment via Azure Portal or REST API."
-    Write-Output "Portal: Automation Account > Runtime Environments > Create"
-    Write-Output "Continuing with module installation..."
+    Write-Error "New-AzAutomationRuntimeEnvironment cmdlet failed: $($_.Exception.Message)"
+    Write-Output ""
+    Write-Output "CANNOT CONTINUE — runtime environment must exist before installing modules."
+    Write-Output ""
+    Write-Output "Create it manually, then re-run this script:"
+    Write-Output "  Portal: Automation Account > Runtime Environments > Create"
+    Write-Output "  Name: $EnvironmentName"
+    Write-Output "  Language: PowerShell"
+    Write-Output "  Runtime: 7.4"
+    throw "Runtime environment creation failed. Resolve before continuing."
 }
 
 # --- Install modules ---

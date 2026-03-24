@@ -178,17 +178,52 @@ Write-Output "Scanning $($files.Count) PowerShell files in '$Path'..."
 Write-Output ""
 
 foreach ($file in $files) {
-    $lines = Get-Content -Path $file.FullName -ErrorAction SilentlyContinue
-    if (-not $lines) { continue }
+    $rawLines = Get-Content -Path $file.FullName -ErrorAction SilentlyContinue
+    if (-not $rawLines) { continue }
 
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        $line = $lines[$i]
+    # --- Join backtick-continuation lines and pipe-continuation lines ---
+    # This prevents false negatives on multiline commands like:
+    #   Connect-PnPOnline -Url $url `
+    #       -Credential $cred
+    $joinedLines = [System.Collections.ArrayList]::new()
+    $lineMap = [System.Collections.ArrayList]::new()  # Maps joined index → original line number
+    $buffer = ""
+    $bufferStartLine = 0
+
+    for ($j = 0; $j -lt $rawLines.Count; $j++) {
+        $raw = $rawLines[$j]
+        if ($buffer -eq "") { $bufferStartLine = $j }
+
+        if ($raw -match '`\s*$') {
+            # Line ends with backtick — continuation
+            $buffer += ($raw -replace '`\s*$', ' ')
+        } elseif ($raw -match '\|\s*$') {
+            # Line ends with pipe — continuation
+            $buffer += $raw + ' '
+        } else {
+            $buffer += $raw
+            $null = $joinedLines.Add($buffer)
+            $null = $lineMap.Add($bufferStartLine)
+            $buffer = ""
+        }
+    }
+    if ($buffer -ne "") {
+        $null = $joinedLines.Add($buffer)
+        $null = $lineMap.Add($bufferStartLine)
+    }
+
+    # Also scan the full file content for splatting patterns
+    $fullContent = $rawLines -join "`n"
+
+    for ($i = 0; $i -lt $joinedLines.Count; $i++) {
+        $line = $joinedLines[$i]
+        $originalLineNum = $lineMap[$i] + 1  # 1-based
         foreach ($p in $patterns) {
             if ($line -match $p.Pattern) {
                 $null = $results.Add([PSCustomObject]@{
                     File       = $file.Name
                     FilePath   = $file.FullName
-                    LineNumber = $i + 1
+                    LineNumber = $originalLineNum
                     LineText   = $line.Trim()
                     Pattern    = $p.Name
                     Severity   = $p.Severity

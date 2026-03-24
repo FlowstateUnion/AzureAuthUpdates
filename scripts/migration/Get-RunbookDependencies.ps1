@@ -51,7 +51,10 @@ param(
     [string]$OutputPath = ".\plan",
 
     [Parameter()]
-    [switch]$UseManagedIdentity
+    [switch]$UseManagedIdentity,
+
+    [Parameter()]
+    [switch]$IncludeParameterValues  # By default, parameter VALUES are redacted for security
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,7 +105,11 @@ foreach ($rb in $runbooks) {
                 StartTime         = $schedule.StartTime
                 NextRun           = $schedule.NextRun
                 IsEnabled         = $schedule.IsEnabled
-                Parameters        = ($link.Parameters | ConvertTo-Json -Compress -Depth 2)
+                Parameters        = if ($IncludeParameterValues) {
+                    ($link.Parameters | ConvertTo-Json -Compress -Depth 2)
+                } else {
+                    ($link.Parameters.Keys -join ", ") + " [values redacted — use -IncludeParameterValues]"
+                }
                 RunOn             = $link.RunOn  # Empty = cloud; value = Hybrid Worker Group
             })
         }
@@ -137,7 +144,11 @@ foreach ($rb in $runbooks) {
                 CreationTime     = $wh.CreationTime
                 LastInvokedTime  = $wh.LastInvokedTime
                 RunOn            = $wh.RunOn
-                Parameters       = ($wh.Parameters | ConvertTo-Json -Compress -Depth 2)
+                Parameters       = if ($IncludeParameterValues) {
+                    ($wh.Parameters | ConvertTo-Json -Compress -Depth 2)
+                } else {
+                    ($wh.Parameters.Keys -join ", ") + " [values redacted — use -IncludeParameterValues]"
+                }
             })
         }
     }
@@ -160,8 +171,26 @@ $credentialParams = [System.Collections.ArrayList]::new()
 $sourceFiles = Get-ChildItem -Path $RunbookSourcePath -Filter "*.ps1" -Recurse -File
 
 foreach ($file in $sourceFiles) {
-    $lines = Get-Content $file.FullName -ErrorAction SilentlyContinue
-    if (-not $lines) { continue }
+    $rawLines = Get-Content $file.FullName -ErrorAction SilentlyContinue
+    if (-not $rawLines) { continue }
+
+    # Join backtick-continuation lines for multiline command detection
+    $lines = [System.Collections.ArrayList]::new()
+    $lineMap = [System.Collections.ArrayList]::new()
+    $buffer = ""
+    $bufStart = 0
+    for ($j = 0; $j -lt $rawLines.Count; $j++) {
+        if ($buffer -eq "") { $bufStart = $j }
+        if ($rawLines[$j] -match '`\s*$') {
+            $buffer += ($rawLines[$j] -replace '`\s*$', ' ')
+        } else {
+            $buffer += $rawLines[$j]
+            $null = $lines.Add($buffer)
+            $null = $lineMap.Add($bufStart)
+            $buffer = ""
+        }
+    }
+    if ($buffer) { $null = $lines.Add($buffer); $null = $lineMap.Add($bufStart) }
 
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = $lines[$i]
@@ -185,7 +214,7 @@ foreach ($file in $sourceFiles) {
             $null = $childCalls.Add([PSCustomObject]@{
                 ParentRunbook  = $file.Name
                 ChildRunbook   = $childName
-                LineNumber     = $i + 1
+                LineNumber     = $lineMap[$i] + 1
                 LineText       = $line.Trim()
                 IsSynchronous  = $isSync
                 PassesParams   = $hasParams

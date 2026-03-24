@@ -90,30 +90,79 @@ Add-Check -Name "Error handling" -Ok $hasTryCatch -Detail $(if ($hasTryCatch) { 
 $hasCleanup = $content -match 'Disconnect-ContosoAll|Disconnect-PnPOnline|finally\s*\{'
 Add-Check -Name "Cleanup/disconnect" -Ok $hasCleanup -Detail $(if ($hasCleanup) { "Found" } else { "Missing Disconnect in finally block" })
 
-# --- Check 6: Parameters preserved ---
+# --- Check 6: Parameter contract preserved (AST-based) ---
 $sourceFile = Join-Path $SourcePath $RunbookName
 if (Test-Path $sourceFile) {
     $sourceContent = Get-Content $sourceFile -Raw
 
-    # Extract param names from source
-    $sourceParams = [regex]::Matches($sourceContent, '\$(\w+)\s*(?:,|\))') |
-        ForEach-Object { $_.Groups[1].Value } | Select-Object -First 20
+    # Parse both files using PowerShell AST
+    $sourceErrors = $null
+    $stagedErrors = $null
+    $sourceAST = [System.Management.Automation.Language.Parser]::ParseInput($sourceContent, [ref]$null, [ref]$sourceErrors)
+    $stagedAST = [System.Management.Automation.Language.Parser]::ParseInput($content, [ref]$null, [ref]$stagedErrors)
 
-    # Check they still exist in migrated version
-    $missingParams = $sourceParams | Where-Object { $content -notmatch "\`$$_\b" }
+    $sourceParamBlock = $sourceAST.ParamBlock
+    $stagedParamBlock = $stagedAST.ParamBlock
 
-    if ($sourceContent -match 'param\s*\(') {
-        Add-Check -Name "Parameters preserved" -Ok ($missingParams.Count -eq 0) `
-            -Detail $(if ($missingParams.Count -eq 0) { "All original parameters found" } else { "Possibly missing: $($missingParams -join ', ')" })
+    if ($sourceParamBlock) {
+        $contractIssues = [System.Collections.ArrayList]::new()
+
+        # Extract parameter details from source
+        $sourceParamInfo = $sourceParamBlock.Parameters | ForEach-Object {
+            $paramName = $_.Name.VariablePath.UserPath
+            $paramType = if ($_.StaticType) { $_.StaticType.Name } else { "object" }
+            $isMandatory = $_.Attributes | Where-Object {
+                $_ -is [System.Management.Automation.Language.AttributeAst] -and
+                $_.TypeName.Name -eq "Parameter" -and
+                $_.NamedArguments | Where-Object { $_.ArgumentName -eq "Mandatory" }
+            }
+            [PSCustomObject]@{
+                Name      = $paramName
+                Type      = $paramType
+                Mandatory = [bool]$isMandatory
+            }
+        }
+
+        if ($stagedParamBlock) {
+            $stagedParamNames = $stagedParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }
+
+            foreach ($sp in $sourceParamInfo) {
+                if ($sp.Name -notin $stagedParamNames) {
+                    $null = $contractIssues.Add("REMOVED: -$($sp.Name) ($($sp.Type))")
+                } else {
+                    # Check type match
+                    $stagedParam = $stagedParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq $sp.Name }
+                    $stagedType = if ($stagedParam.StaticType) { $stagedParam.StaticType.Name } else { "object" }
+                    if ($sp.Type -ne $stagedType -and $sp.Type -ne "object" -and $stagedType -ne "object") {
+                        $null = $contractIssues.Add("TYPE CHANGED: -$($sp.Name) was [$($sp.Type)], now [$stagedType]")
+                    }
+                }
+            }
+        } else {
+            $null = $contractIssues.Add("Param block was REMOVED entirely from migrated version")
+        }
+
+        Add-Check -Name "Parameter contract" -Ok ($contractIssues.Count -eq 0) `
+            -Detail $(if ($contractIssues.Count -eq 0) {
+                "All $($sourceParamInfo.Count) parameters preserved with matching types"
+            } else {
+                "CONTRACT DRIFT: $($contractIssues -join '; ')"
+            })
     }
 }
 
-# --- Check 7: No hardcoded secrets ---
+# --- Check 7: No legacy module imports ---
+$legacyImports = @('Microsoft\.Online\.SharePoint\.PowerShell', 'AzureAD', 'MSOnline')
+$foundLegacyImports = $legacyImports | Where-Object { $content -match "Import-Module\s+$_" }
+Add-Check -Name "No legacy module imports" -Ok ($foundLegacyImports.Count -eq 0) `
+    -Detail $(if ($foundLegacyImports.Count -eq 0) { "Clean" } else { "Still imports: $($foundLegacyImports -join ', ')" })
+
+# --- Check 8: No hardcoded secrets ---
 $secretPatterns = $content | Select-String -Pattern '(password|secret|key)\s*=\s*[''"][^''"]{8,}[''"]' -AllMatches
 Add-Check -Name "No hardcoded secrets" -Ok ($secretPatterns.Count -eq 0) `
     -Detail $(if ($secretPatterns.Count -eq 0) { "Clean" } else { "Possible hardcoded secret found — review manually" })
 
-# --- Check 8: ErrorActionPreference ---
+# --- Check 9: ErrorActionPreference ---
 $hasEAP = $content -match '\$ErrorActionPreference\s*=\s*[''"]Stop[''"]'
 Add-Check -Name "ErrorActionPreference" -Ok $hasEAP `
     -Detail $(if ($hasEAP) { 'Set to "Stop"' } else { 'Missing $ErrorActionPreference = "Stop"' })

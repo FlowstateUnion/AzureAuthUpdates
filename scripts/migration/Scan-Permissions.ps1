@@ -1,12 +1,17 @@
 <#
     .SYNOPSIS
-        Analyzes runbook source code to recommend minimum API permissions.
+        Analyzes runbook source code to recommend CANDIDATE API permissions (advisory).
 
     .DESCRIPTION
-        Scans exported runbooks for cmdlet usage patterns and maps them to the
-        minimum Entra ID App Roles (Graph and SharePoint permissions) needed.
-        Produces a per-runbook permission recommendation report to replace the
-        blanket Sites.FullControl.All approach.
+        Scans runbooks for cmdlet usage patterns and maps them to likely
+        Entra ID App Roles (Graph and SharePoint permissions).
+
+        IMPORTANT — ADVISORY ONLY: This is a planning aid, not an authoritative
+        minimum-permissions tool. Known limitations:
+        - Cannot detect permissions needed for REST calls (Invoke-RestMethod, Invoke-MgGraphRequest)
+        - Cannot detect parameter-conditional permissions (e.g., Get-MgUser -Property Manager needs more than User.Read.All)
+        - Cannot detect permissions needed by splatted or dynamically-invoked commands
+        - Results should be reviewed by a human before granting to Managed Identity
 
     .PARAMETER Path
         Directory containing exported runbook .ps1 files.
@@ -166,9 +171,17 @@ foreach ($file in $files) {
 if ($results.Count -eq 0) {
     Write-Output "No permission-requiring cmdlets detected."
 } else {
+    # Advisory disclaimer
+    Write-Output ""
+    Write-Output "================================================================"
+    Write-Output "  ADVISORY: These are CANDIDATE permissions based on cmdlet"
+    Write-Output "  detection. Not authoritative. Review before granting."
+    Write-Output "  Blind spots: REST API calls, splatted params, dynamic commands."
+    Write-Output "================================================================"
+
     # Per-runbook summary
     Write-Output ""
-    Write-Output "=== Per-Runbook Permission Requirements ==="
+    Write-Output "=== Per-Runbook Candidate Permissions ==="
     $results | Group-Object Runbook | ForEach-Object {
         Write-Output ""
         Write-Output "  $($_.Name):"
@@ -177,9 +190,9 @@ if ($results.Count -eq 0) {
         }
     }
 
-    # Global minimum permission set
+    # Global candidate permission set
     Write-Output ""
-    Write-Output "=== Minimum Permission Set (Union of All Runbooks) ==="
+    Write-Output "=== Candidate Permission Set (Union of All Runbooks) ==="
     $globalPerms = $results | Select-Object -Unique Service, Permission, Level |
         Sort-Object Service, Level
     $globalPerms | ForEach-Object {

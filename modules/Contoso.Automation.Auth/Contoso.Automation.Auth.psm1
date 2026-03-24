@@ -20,9 +20,34 @@
 # --- Module-scoped state ---
 $script:IsAzureConnected = $false
 $script:AzureConnectParams = @{}
-$script:SharePointConnections = @{}
 $script:LastAzureTokenRefresh = $null
 $script:TokenRefreshIntervalMinutes = 45  # Refresh before the typical 60-min expiry
+
+# Per-service connection context for reliable reconnect
+$script:GraphConnectParams = @{}
+$script:SharePointConnectParams = @{}
+$script:ExchangeConnectParams = @{}
+
+# Error patterns that indicate token expiry (retryable)
+$script:TokenExpiryPatterns = @(
+    'AADSTS700024'           # Token expired
+    'AADSTS500133'           # Token not yet valid or expired
+    'lifetime validation failed'
+    'Access token has expired'
+    'token is expired'
+    'AADSTS70043'            # Refresh token expired
+)
+
+# Error patterns that indicate authorization denial (NOT retryable — fail fast)
+$script:AuthorizationDenialPatterns = @(
+    'Authorization_RequestDenied'
+    'Insufficient privileges'
+    'Access is denied'
+    'does not have authorization'
+    'UnauthorizedAccessException'
+    'AADSTS65001'            # Consent required
+    'AADSTS530003'           # Conditional Access block
+)
 
 # =============================================================================
 # PUBLIC FUNCTIONS
@@ -137,6 +162,7 @@ function Connect-ContosoSharePoint {
 
                 Write-Verbose "Connecting to SharePoint ($SiteUrl) via Managed Identity..."
                 $result = Connect-PnPOnline @pnpParams
+                $script:SharePointConnectParams = @{ AuthMethod = 'ManagedIdentity'; SiteUrl = $SiteUrl; UserAssignedClientId = $UserAssignedClientId }
             }
             'Certificate' {
                 if (-not $ClientId -or -not $TenantName -or -not $CertThumbprint) {
@@ -155,6 +181,10 @@ function Connect-ContosoSharePoint {
 
                 Write-Verbose "Connecting to SharePoint ($SiteUrl) via Certificate..."
                 $result = Connect-PnPOnline @pnpParams
+                $script:SharePointConnectParams = @{
+                    AuthMethod = 'Certificate'; SiteUrl = $SiteUrl
+                    ClientId = $ClientId; TenantName = $TenantName; CertThumbprint = $CertThumbprint
+                }
             }
         }
 
@@ -264,6 +294,7 @@ function Connect-ContosoGraph {
                 }
                 Write-Verbose "Connecting to Microsoft Graph via Managed Identity..."
                 Connect-MgGraph @params -NoWelcome
+                $script:GraphConnectParams = @{ AuthMethod = 'ManagedIdentity'; Params = $params }
             }
             'Certificate' {
                 if (-not $ClientId -or -not $TenantId -or -not $CertThumbprint) {
@@ -271,6 +302,10 @@ function Connect-ContosoGraph {
                 }
                 Write-Verbose "Connecting to Microsoft Graph via Certificate..."
                 Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -CertificateThumbprint $CertThumbprint -NoWelcome
+                $script:GraphConnectParams = @{
+                    AuthMethod = 'Certificate'
+                    Params = @{ ClientId = $ClientId; TenantId = $TenantId; CertificateThumbprint = $CertThumbprint }
+                }
             }
         }
 
@@ -415,6 +450,7 @@ function Connect-ContosoExchange {
                 }
                 Write-Verbose "Connecting to Exchange Online via Managed Identity..."
                 Connect-ExchangeOnline @params
+                $script:ExchangeConnectParams = @{ AuthMethod = 'ManagedIdentity'; Organization = $Organization; UserAssignedClientId = $UserAssignedClientId }
             }
             'Certificate' {
                 if (-not $AppId -or -not $CertThumbprint) {
@@ -425,6 +461,10 @@ function Connect-ContosoExchange {
                     -AppId $AppId `
                     -Organization $Organization `
                     -ShowBanner:$false
+                $script:ExchangeConnectParams = @{
+                    AuthMethod = 'Certificate'; Organization = $Organization
+                    AppId = $AppId; CertThumbprint = $CertThumbprint
+                }
             }
         }
 
@@ -496,41 +536,98 @@ function Invoke-ContosoWithRetry {
             return (& $ScriptBlock)
         }
         catch {
-            $isAuthError = $_.Exception.Message -match `
-                '401|403|Unauthorized|Forbidden|token.*expir|Access token has expired|lifetime validation failed|AADSTS700024'
+            $errMsg = $_.Exception.Message
 
-            if ($isAuthError -and $attempt -lt $MaxRetries) {
+            # Check for non-recoverable authorization denial — fail fast, do not retry
+            $isAuthzDenial = $script:AuthorizationDenialPatterns | Where-Object { $errMsg -match $_ }
+            if ($isAuthzDenial) {
+                Write-Error "Authorization denied (not retryable): $errMsg"
+                throw
+            }
+
+            # Check for retryable token expiry
+            $isTokenExpiry = ($errMsg -match '401|Unauthorized') -or
+                ($script:TokenExpiryPatterns | Where-Object { $errMsg -match $_ })
+
+            if ($isTokenExpiry -and $attempt -lt $MaxRetries) {
                 $attempt++
-                Write-Warning "Auth error detected (attempt $attempt of $MaxRetries). Refreshing connections..."
+                Write-Warning "Token expiry detected (attempt $attempt of $MaxRetries). Refreshing connections..."
 
-                # Refresh Azure connection
+                # Refresh Azure context
                 if ($script:IsAzureConnected -and $script:AzureConnectParams.Count -gt 0) {
                     try {
                         Connect-AzAccount @script:AzureConnectParams -WarningAction SilentlyContinue | Out-Null
                         $script:LastAzureTokenRefresh = Get-Date
                         Write-Verbose "Azure token refreshed."
                     }
-                    catch {
-                        Write-Warning "Failed to refresh Azure token: $($_.Exception.Message)"
-                    }
+                    catch { Write-Warning "Azure reconnect failed: $($_.Exception.Message)" }
                 }
 
-                # Refresh Graph connection
-                if (Get-Module -Name 'Microsoft.Graph.Authentication' -ErrorAction SilentlyContinue) {
+                # Refresh Graph using original auth context
+                if ($script:GraphConnectParams.Count -gt 0) {
                     try {
-                        $ctx = Get-MgContext -ErrorAction SilentlyContinue
-                        if ($ctx) {
-                            Connect-MgGraph -Identity -NoWelcome -ErrorAction SilentlyContinue
-                            Write-Verbose "Graph token refreshed."
+                        switch ($script:GraphConnectParams.AuthMethod) {
+                            'ManagedIdentity' {
+                                Connect-MgGraph @($script:GraphConnectParams.Params) -NoWelcome
+                            }
+                            'Certificate' {
+                                $p = $script:GraphConnectParams.Params
+                                Connect-MgGraph -ClientId $p.ClientId -TenantId $p.TenantId `
+                                    -CertificateThumbprint $p.CertificateThumbprint -NoWelcome
+                            }
                         }
+                        Write-Verbose "Graph token refreshed with original auth context."
                     }
-                    catch { <# Graph may not be in use — ignore #> }
+                    catch { Write-Warning "Graph reconnect failed: $($_.Exception.Message)" }
+                }
+
+                # Refresh PnP SharePoint using original auth context
+                if ($script:SharePointConnectParams.Count -gt 0) {
+                    try {
+                        $sp = $script:SharePointConnectParams
+                        switch ($sp.AuthMethod) {
+                            'ManagedIdentity' {
+                                $pnpParams = @{ Url = $sp.SiteUrl; ManagedIdentity = $true }
+                                if ($sp.UserAssignedClientId) {
+                                    $pnpParams['UserAssignedManagedIdentityClientId'] = $sp.UserAssignedClientId
+                                }
+                                Connect-PnPOnline @pnpParams
+                            }
+                            'Certificate' {
+                                Connect-PnPOnline -Url $sp.SiteUrl -ClientId $sp.ClientId `
+                                    -Tenant $sp.TenantName -Thumbprint $sp.CertThumbprint
+                            }
+                        }
+                        Write-Verbose "PnP SharePoint reconnected to $($sp.SiteUrl)."
+                    }
+                    catch { Write-Warning "PnP reconnect failed: $($_.Exception.Message)" }
+                }
+
+                # Refresh Exchange using original auth context
+                if ($script:ExchangeConnectParams.Count -gt 0) {
+                    try {
+                        $ex = $script:ExchangeConnectParams
+                        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+                        switch ($ex.AuthMethod) {
+                            'ManagedIdentity' {
+                                $exParams = @{ ManagedIdentity = $true; Organization = $ex.Organization; ShowBanner = $false }
+                                if ($ex.UserAssignedClientId) { $exParams['ManagedIdentityAccountId'] = $ex.UserAssignedClientId }
+                                Connect-ExchangeOnline @exParams
+                            }
+                            'Certificate' {
+                                Connect-ExchangeOnline -CertificateThumbprint $ex.CertThumbprint `
+                                    -AppId $ex.AppId -Organization $ex.Organization -ShowBanner:$false
+                            }
+                        }
+                        Write-Verbose "Exchange Online reconnected."
+                    }
+                    catch { Write-Warning "Exchange reconnect failed: $($_.Exception.Message)" }
                 }
 
                 Start-Sleep -Seconds $RetryDelaySeconds
             }
             else {
-                # Not an auth error, or retries exhausted
+                # Not a token expiry, or retries exhausted
                 throw
             }
         }

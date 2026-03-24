@@ -20,27 +20,29 @@ $creds = Get-AzAutomationCredential -ResourceGroupName $rg -AutomationAccountNam
 Write-Output "Credential assets found: $($creds.Count)"
 $creds | Select-Object Name, UserName, CreationTime | Format-Table -AutoSize
 
-# For each credential, verify no runbook references it
+# For each credential, verify no MIGRATED runbook references it
+# Check completed (published) versions, NOT the originals in source/
+$checkPath = if (Test-Path ".\runbooks\completed") { ".\runbooks\completed" } else { ".\runbooks\testing" }
 foreach ($cred in $creds) {
-    $refs = Get-ChildItem ".\runbooks\source\*.ps1" |
+    $refs = Get-ChildItem "$checkPath\*.ps1" -ErrorAction SilentlyContinue |
         Select-String -Pattern $cred.Name -SimpleMatch
     if ($refs) {
-        Write-Warning "$($cred.Name) is still referenced in: $(($refs | Select-Object -Unique Filename).Filename -join ', ')"
+        Write-Warning "$($cred.Name) is still referenced in MIGRATED scripts: $(($refs | Select-Object -Unique Filename).Filename -join ', ')"
     } else {
-        Write-Output "SAFE TO DELETE: $($cred.Name) — no references found"
+        Write-Output "SAFE TO DELETE: $($cred.Name) — not referenced in any migrated script"
     }
 }
 ```
 
 **Delete unused credentials:**
 ```powershell
-# Only after confirming no references
+# Only after confirming no references in migrated scripts
 Remove-AzAutomationCredential -ResourceGroupName $rg `
     -AutomationAccountName $aa `
     -Name "<CREDENTIAL-NAME>"
 ```
 
-> **CAUTION:** Cross-check against the *migrated* runbooks (in `staging/`), not the originals. The originals still reference the old credentials, but the published versions should not.
+> **IMPORTANT:** Always check against the *migrated* scripts (`runbooks/completed/` or `runbooks/testing/`), not the originals in `runbooks/source/`. The originals still reference old credentials by design — that's what we migrated away from.
 
 ---
 
