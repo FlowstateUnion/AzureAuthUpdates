@@ -60,12 +60,16 @@ Create `agent/PROGRESS.md` using the scan results. See the Progress Tracking sec
 
 ## Per-Runbook Migration Process
 
-For each runbook, follow this exact sequence. Use the skill scripts in `agent/skills/` as your reference.
+For each runbook, follow this exact sequence. Each step maps to a governance gate (see `governance/GOVERNANCE.md`). **Update the per-script checklist** at every step.
 
-### 1. ANALYZE (skill: analyze-runbook)
+### 1. ANALYZE — Gate 1: Baseline & Requirements (skill: analyze-runbook)
+- Verify baseline exists: `governance/baselines/<Name>.baseline.md`
+  - If not, run: `scripts/governance/New-ScriptBaseline.ps1 -RunbookName "<Name>.ps1"`
+- Verify checklist exists: `governance/checklists/<Name>.checklist.md`
 - Read the source file from `runbooks/source/`
 - Check `agent/scan-results.csv` for its findings
 - Check `agent/permission-audit.csv` for its permission needs
+- **Fill in Gate 1 of the checklist** with findings, services, dependencies, and requirements
 - Determine:
   - What auth patterns need replacing
   - What module calls need remapping (SPO→PnP, AzureAD→Graph, EXO creds→MI)
@@ -73,7 +77,13 @@ For each runbook, follow this exact sequence. Use the skill scripts in `agent/sk
   - Whether it calls child runbooks or is called by parents
   - Whether it must stay on PS 5.1 (if yes → exception)
 
-### 2. MIGRATE (skill: migrate-runbook)
+### 1b. PEER REVIEW — Gate 2 (human)
+- After you complete Gate 1 for a runbook, the **human reviews** the baseline and checklist
+- The human signs off Gate 2 in the checklist before you proceed
+- If the human has granted blanket approval for Simple runbooks, proceed without waiting
+- For Medium/Complex runbooks, **always wait for Gate 2 sign-off**
+
+### 2. MIGRATE — Gate 3: Execution (skill: migrate-runbook)
 - Copy the file from `source/` to `staging/`
 - Apply changes in this order:
   1. **Add `#Requires` statements** at the top
@@ -109,8 +119,9 @@ For each runbook, follow this exact sequence. Use the skill scripts in `agent/sk
      - Authorization denials (insufficient permissions) will fail fast — do NOT wrap permission-dependent code in retry expecting it to self-heal
 - **PRESERVE**: parameter names, parameter types, output format, business logic
 - **DO NOT**: add features, refactor working logic, rename variables, add comments to code you didn't change
+- **UPDATE THE CHECKLIST**: Fill in Gate 3 change log with every change made, cmdlets remapped, dead code removed
 
-### 3. VALIDATE (skill: validate-runbook)
+### 3. VALIDATE — Gate 4: Validation & QA (skill: validate-runbook)
 The validator runs 9 checks:
 1. PowerShell syntax (parser)
 2. No legacy auth patterns remain
@@ -125,6 +136,8 @@ The validator runs 9 checks:
 - If all 9 pass → copy to `runbooks/testing/`
 - If any fail → fix issues in `staging/` and re-validate
 - **Parameter contract failures are critical** — a renamed or retyped param will break schedules and webhooks
+- **UPDATE THE CHECKLIST**: Fill in Gate 4 validation results table
+- Gates 5 and 6 are human-owned (Azure testing, publishing, monitoring, final sign-off)
 
 ### 4. EXCEPTION (skill: exception-runbook)
 If a runbook CANNOT be migrated to PS 7.4 (COM objects with no replacement, etc.):

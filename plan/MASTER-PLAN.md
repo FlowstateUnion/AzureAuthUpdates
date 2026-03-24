@@ -105,22 +105,22 @@ Replace all legacy credential-based authentication patterns across Azure Automat
 | 2.7 | Build prioritized migration queue (children before parents) | `plan/migration-queue.csv` |
 | 2.8 | Ensure source scripts are in `runbooks/source/` | Agent reads from here; complexity tracked in `migration-queue.csv` |
 | 2.9 | Run pre-flight permission validation | `plan/ROLLBACK-PLAYBOOK.md` — verify MI has required permissions |
+| 2.10 | Generate baselines and per-script checklists | `scripts/governance/New-ScriptBaseline.ps1 -All` — creates governance artifacts |
 
 ### Phase 3 — Migration Execution
-**Goal:** Update each runbook using the staged approach.
+**Goal:** Update each runbook through 6 formal gates.
 **Detailed instructions:** [`PHASE3-MIGRATION-INSTRUCTIONS.md`](PHASE3-MIGRATION-INSTRUCTIONS.md)
+**Governance framework:** [`governance/GOVERNANCE.md`](../governance/GOVERNANCE.md)
 
-**Per-runbook workflow:**
-1. Read and understand the runbook + its scan results
-2. Identify the auth block shape (credential, client secret, Run As, PnP cred)
-3. Replace auth block with shared module calls (`Connect-Contoso*`)
-4. Remap `Connect-SPOService` / SPO cmdlets to PnP equivalents where applicable
-5. Apply standardized template (header, `#Requires`, try/catch/finally, cleanup)
-6. Remove dead credential code
-7. Syntax-check locally
-8. Test in Azure Automation Test pane
-9. Publish updated runbook (assign to `PS74-ModernAuth` runtime)
-10. Monitor for 1 week; rollback = revert to previous published version
+**Per-runbook workflow (6 gates):**
+Each script has its own checklist in `governance/checklists/<Name>.checklist.md` that is updated at every gate.
+
+1. **Gate 1 — Baseline & Requirements:** Baseline captured, scan results recorded, dependencies identified, migration scope defined
+2. **Gate 2 — Requirements Peer Review:** Reviewer approves approach, flags concerns, signs off in checklist
+3. **Gate 3 — Execution:** Auth migration, cmdlet remapping, template application, change log recorded in checklist
+4. **Gate 4 — Validation & QA:** 9-point automated validation + human diff review → moves to `runbooks/testing/`
+5. **Gate 5 — Testing (Azure):** Test pane execution, output comparison, job stream review → moves to `runbooks/completed/`
+6. **Gate 6 — Documentation & Sign-Off:** Published, 7-day monitoring, legacy assets cleaned, final sign-off
 11. Record completion in `migration-queue.csv`
 
 **Includes:** Per-runbook checklist, batch migration helper for simple runbooks, rollback procedure.
