@@ -57,14 +57,14 @@ Remove Automation Credential/Variable assets, delete old Run As App Registration
 | `strategy/06-Exchange-Online.md` | EXO migration: credentials/PSSession → MI, Send-MailMessage → Graph |
 | `strategy/07-Hybrid-Runbook-Workers.md` | HRW module deployment, MI auth differences, Windows vs Linux |
 | `strategy/08-PS51-to-PS74-Compatibility.md` | Non-auth breaking changes: COM, WMI, .NET Framework, encoding |
-| `modules/Contoso.Automation.Auth/` | Shared auth module v1.1 (Azure, SPO, Graph, EXO, token refresh) |
+| `modules/Contoso.Automation.Auth/` | Shared auth module v1.1 (Azure, SPO, Graph, EXO, per-service token refresh, fail-fast on auth denial) |
 | `templates/RunbookTemplate.ps1` | Drop-in runbook template |
 | `scripts/setup/Grant-ManagedIdentityPermissions.ps1` | Grants Entra ID App Roles to MI |
 | `scripts/setup/New-RuntimeEnvironment.ps1` | Creates PS 7.4 runtime with pinned modules |
 | `scripts/setup/Deploy-AuthModule.ps1` | Packages and deploys the shared module |
 | `scripts/migration/Export-Runbooks.ps1` | Exports all runbooks from Automation Account |
-| `scripts/migration/Scan-LegacyAuth.ps1` | Scans scripts for 19 legacy auth + PS 7.4 compat patterns |
-| `scripts/migration/Scan-Permissions.ps1` | Maps cmdlet usage to minimum API permissions (least-privilege audit) |
+| `scripts/migration/Scan-LegacyAuth.ps1` | Scans scripts for 19 patterns (multiline-aware, joins continuation lines) |
+| `scripts/migration/Scan-Permissions.ps1` | Advisory cmdlet-to-permission mapping (candidate permissions, not authoritative) |
 | `scripts/migration/Get-RunbookDependencies.ps1` | Inventories schedules, webhooks, child runbooks, HRW usage |
 | `staging/Test-AuthModule.ps1` | Validation runbook for the shared module |
 | `plan/ROLLBACK-PLAYBOOK.md` | Incident response: single/bulk rollback, pre-flight validation |

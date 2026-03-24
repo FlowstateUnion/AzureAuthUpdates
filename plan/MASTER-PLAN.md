@@ -153,8 +153,12 @@ Replace all legacy credential-based authentication patterns across Azure Automat
 | Key Vault for remaining secrets | RBAC-controlled; auditable; supports rotation; replaces Automation Variables |
 | Migrate children before parents | Child runbooks are dependencies; breaking them breaks the parent chain |
 | Least-privilege permissions | Audit actual cmdlet usage; avoid blanket Sites.FullControl.All where possible |
-| Token refresh in shared module | Proactive refresh at 45 min prevents silent failures on long-running jobs |
+| Token refresh in shared module | Proactive refresh at 45 min; per-service reconnect with original auth context; authorization denials fail fast |
 | EXO v3 for Exchange operations | v3+ supports MI; replaces deprecated remote PSSession and Basic Auth |
+| Permission audit is advisory only | Cmdlet-based scan is a planning aid, not authoritative; REST calls and parameter-conditional permissions are blind spots |
+| AST-based parameter validation | Migrated runbooks must preserve exact parameter contract (names, types, mandatory flags) verified via PowerShell parser |
+| Multiline-aware scanners | Backtick/pipe continuation lines are joined before pattern matching to prevent false negatives |
+| Dependency exports redacted by default | Schedule/webhook parameter values not exported unless explicitly opted in |
 
 ## Risk Register
 
@@ -164,7 +168,10 @@ Replace all legacy credential-based authentication patterns across Azure Automat
 | Managed Identity permissions insufficient for edge cases | Medium | Fallback to certificate auth via Key Vault; document in strategy |
 | PS 7.4 runtime breaks legacy script logic (e.g., COM objects) | High | Scan with compatibility checker; maintain PS 5.1 runtime for documented exceptions |
 | Module version conflicts in runtime environment | Low | Pin all versions; use custom runtime environment |
-| Long-running runbooks hit token expiry | Medium | `Invoke-ContosoWithRetry` + proactive 45-min refresh in shared module |
+| Long-running runbooks hit token expiry | Medium | `Invoke-ContosoWithRetry` with per-service reconnect using stored auth context; proactive 45-min Azure token refresh |
+| Authorization denial mistaken for token expiry | Medium | Retry logic distinguishes token expiry patterns from authorization denial patterns; denials fail fast |
+| Scanner misses multiline commands | Medium | Scanners join backtick/pipe continuation lines before matching; reduces false negatives |
+| Permission audit misread as authoritative | Medium | Output explicitly labeled advisory; blind spots (REST, splatting) documented in report header |
 | Cascading failure if MI permissions misconfigured | High | Pre-flight validation script; bulk rollback playbook; migrate in small batches |
 | Child runbooks break parent chains | High | Dependency inventory (`Get-RunbookDependencies.ps1`); migrate children first |
 | Webhooks/schedules break due to parameter changes | Medium | Dependency inventory; preserve all existing parameter names and types |

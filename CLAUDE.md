@@ -57,8 +57,11 @@ diagnostics/            — Diagnostic logs and context data
 - Azure Key Vault for any remaining secrets/certificates
 - Module versions are pinned in custom runtime environments
 - Child runbooks are migrated before parent runbooks
-- Least-privilege permissions audited per runbook (not blanket Sites.FullControl.All)
-- Token refresh at 45-min intervals for long-running runbooks
+- Least-privilege permissions audited per runbook (advisory — not blanket Sites.FullControl.All)
+- Token refresh at 45-min intervals; per-service reconnect with stored auth context
+- Authorization denials (403 permission errors) fail fast — not retried
+- Scanners are multiline-aware (join backtick/pipe continuation lines)
+- Parameter contract validation is AST-based (names, types, mandatory flags)
 
 ## For the Human
 

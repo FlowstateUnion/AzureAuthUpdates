@@ -105,15 +105,26 @@ For each runbook, follow this exact sequence. Use the skill scripts in `agent/sk
      - Delete all `New-Object PSCredential`
      - Delete unused `Import-Module` statements for replaced modules
   8. **Use `Invoke-ContosoWithRetry`** for operations that may span >30 minutes
+     - The retry logic handles token expiry automatically (reconnects each service with original auth context)
+     - Authorization denials (insufficient permissions) will fail fast — do NOT wrap permission-dependent code in retry expecting it to self-heal
 - **PRESERVE**: parameter names, parameter types, output format, business logic
 - **DO NOT**: add features, refactor working logic, rename variables, add comments to code you didn't change
 
 ### 3. VALIDATE (skill: validate-runbook)
-- Run a PowerShell syntax check on the staged file
-- Verify all `#Requires` modules match what's actually used
-- Verify no legacy patterns remain (re-scan the single file)
-- If validation passes → copy to `runbooks/testing/`
-- If validation fails → fix issues in `staging/` and re-validate
+The validator runs 9 checks:
+1. PowerShell syntax (parser)
+2. No legacy auth patterns remain
+3. Shared module is imported (`Contoso.Automation.Auth`)
+4. Error handling exists (try/catch)
+5. Cleanup/disconnect in finally block
+6. **Parameter contract preserved** (AST-based — compares param names, types, mandatory flags between source and staged)
+7. No legacy module imports (AzureAD, MSOnline, SPO module)
+8. No hardcoded secrets
+9. `$ErrorActionPreference = "Stop"` set
+
+- If all 9 pass → copy to `runbooks/testing/`
+- If any fail → fix issues in `staging/` and re-validate
+- **Parameter contract failures are critical** — a renamed or retyped param will break schedules and webhooks
 
 ### 4. EXCEPTION (skill: exception-runbook)
 If a runbook CANNOT be migrated to PS 7.4 (COM objects with no replacement, etc.):
